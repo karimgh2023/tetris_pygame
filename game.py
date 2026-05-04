@@ -18,6 +18,7 @@ from config import (
     FPS,
     HIGHSCORE_FILE,
     ROWS,
+    STARTING_LIVES,
     VISIBLE_ROWS,
     WINDOW_HEIGHT,
     WINDOW_WIDTH,
@@ -77,7 +78,13 @@ class Game:
         self.high_score = self._load_high_score()
 
         self.phase = GamePhase.MENU
+        self._menu_rects: dict[str, pygame.Rect] = {}
+        self._pause_rects: dict[str, pygame.Rect] = {}
+        self._end_rects: dict[str, pygame.Rect] = {}
         self._reset_soft()
+
+    def _diff_cfg(self):
+        return DIFFICULTY_LEVELS[self._difficulty_name()]
 
     def _reset_soft(self):
         self.board = Board()
@@ -89,12 +96,12 @@ class Game:
         self.total_lines = 0
         self.phase = GamePhase.MENU
 
-        cfg = DIFFICULTY_LEVELS[self._difficulty_name()]
-        self.start_level_cfg = cfg["start_level"]
-        self.lines_per_level = cfg["lines_per_level"]
+        cfg = self._diff_cfg()
+        self.score_per_level = cfg["score_per_level"]
+        self.level_boost = cfg["level_boost"]
 
         self.gravity_acc = 0.0
-        self.drop_every = self._compute_drop_every(self.display_level())
+        self.drop_every = self._compute_drop_every(self.gravity_level())
 
         self.das_dx = 0
         self.das_timer = 0
@@ -111,8 +118,50 @@ class Game:
         lv = max(1, min(level_disp, 30))
         return max(2.8, 58.0 - lv * 1.85)
 
+    def gravity_level(self) -> int:
+        """Difficulty index from score (higher = faster drops)."""
+        return max(1, 1 + self.level_boost + (self.score // max(1, self.score_per_level)))
+
     def display_level(self) -> int:
-        return self.start_level_cfg + self.total_lines // max(1, self.lines_per_level)
+        """Player-facing level (same formula as gravity for clarity)."""
+        return self.gravity_level()
+
+    def points_to_next_level(self) -> int:
+        """Score still needed before the next level step (pure score ladder)."""
+        step = max(1, self.score_per_level)
+        r = self.score % step
+        return step if r == 0 else step - r
+
+    def _layout_menu_rects(self) -> None:
+        cx = WINDOW_WIDTH // 2
+        self._menu_rects = {
+            "diff_prev": pygame.Rect(cx - 138, 232, 52, 40),
+            "diff_next": pygame.Rect(cx + 86, 232, 52, 40),
+            "play": pygame.Rect(cx - 120, 300, 240, 48),
+            "quit": pygame.Rect(cx - 120, 360, 240, 40),
+        }
+
+    def _layout_pause_rects(self) -> None:
+        cx, cy = WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 + 70
+        self._pause_rects = {
+            "resume": pygame.Rect(cx - 118, cy, 236, 44),
+            "menu": pygame.Rect(cx - 118, cy + 54, 236, 40),
+        }
+
+    def _layout_end_rects(self) -> None:
+        cx, cy = WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 + 88
+        self._end_rects = {
+            "menu": pygame.Rect(cx - 118, cy, 236, 44),
+            "quit": pygame.Rect(cx - 118, cy + 54, 236, 40),
+        }
+
+    def _draw_button(self, rect: pygame.Rect, text: str, *, hover: bool, font: pygame.font.Font | None = None) -> None:
+        ft = font or self.font
+        fill = (92, 98, 138) if hover else (58, 64, 96)
+        pygame.draw.rect(self.screen, fill, rect, border_radius=10)
+        pygame.draw.rect(self.screen, (210, 215, 240), rect, 2, border_radius=10)
+        surf = ft.render(text, True, WHITE)
+        self.screen.blit(surf, surf.get_rect(center=rect.center))
 
     def _load_high_score(self) -> int:
         path = os.path.join(os.path.dirname(__file__), HIGHSCORE_FILE)
@@ -148,7 +197,7 @@ class Game:
             self._save_high_score_if_needed()
 
     def _award_lines_score(self, n: int) -> None:
-        lv = max(1, self.display_level())
+        lv = max(1, self.gravity_level())
         self.score += SCORE_MULTIPLIER.get(n, 0) * lv
         self.total_lines += n
         if n == 4:
@@ -221,7 +270,7 @@ class Game:
         if self.phase != GamePhase.PLAY or self.piece is None:
             return
         mult = 4.8 if self.soft_drop else 1.0
-        self.drop_every = self._compute_drop_every(self.display_level())
+        self.drop_every = self._compute_drop_every(self.gravity_level())
         self.gravity_acc += frames * mult
         while self.gravity_acc >= self.drop_every:
             self.gravity_acc -= self.drop_every
@@ -234,8 +283,8 @@ class Game:
         names = list(DIFFICULTY_LEVELS.keys())
         self._difficulty_index = self._difficulty_index % len(names)
         cfg = DIFFICULTY_LEVELS[self._difficulty_name()]
-        self.start_level_cfg = cfg["start_level"]
-        self.lines_per_level = cfg["lines_per_level"]
+        self.score_per_level = cfg["score_per_level"]
+        self.level_boost = cfg["level_boost"]
 
         self.board = Board()
         self.bag = Bag()
@@ -250,6 +299,40 @@ class Game:
         if event.type == pygame.QUIT:
             pygame.quit()
             raise SystemExit(0)
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pos = event.pos
+            if self.phase == GamePhase.MENU:
+                self._layout_menu_rects()
+                if self._menu_rects.get("play") and self._menu_rects["play"].collidepoint(pos):
+                    self.start_play()
+                elif self._menu_rects.get("diff_prev") and self._menu_rects["diff_prev"].collidepoint(pos):
+                    self._difficulty_index = max(0, self._difficulty_index - 1)
+                elif self._menu_rects.get("diff_next") and self._menu_rects["diff_next"].collidepoint(pos):
+                    names = list(DIFFICULTY_LEVELS.keys())
+                    self._difficulty_index = min(len(names) - 1, self._difficulty_index + 1)
+                elif self._menu_rects.get("quit") and self._menu_rects["quit"].collidepoint(pos):
+                    pygame.quit()
+                    raise SystemExit(0)
+                return
+            if self.phase == GamePhase.PAUSE:
+                self._layout_pause_rects()
+                if self._pause_rects.get("resume") and self._pause_rects["resume"].collidepoint(pos):
+                    self.phase = GamePhase.PLAY
+                    self.sounds["pause"].play()
+                elif self._pause_rects.get("menu") and self._pause_rects["menu"].collidepoint(pos):
+                    self._save_high_score_if_needed()
+                    self.phase = GamePhase.MENU
+                return
+            if self.phase in (GamePhase.GAMEOVER, GamePhase.MARATHON_WIN):
+                self._layout_end_rects()
+                if self._end_rects.get("menu") and self._end_rects["menu"].collidepoint(pos):
+                    self._save_high_score_if_needed()
+                    self.phase = GamePhase.MENU
+                elif self._end_rects.get("quit") and self._end_rects["quit"].collidepoint(pos):
+                    pygame.quit()
+                    raise SystemExit(0)
+                return
 
         if event.type == pygame.KEYDOWN:
             key = event.key
@@ -277,6 +360,9 @@ class Game:
                 if key in (pygame.K_p, pygame.K_ESCAPE):
                     self.phase = GamePhase.PLAY
                     self.sounds["pause"].play()
+                elif key == pygame.K_m:
+                    self._save_high_score_if_needed()
+                    self.phase = GamePhase.MENU
                 return
 
             if key in (pygame.K_p, pygame.K_ESCAPE) and self.phase == GamePhase.PLAY:
@@ -417,13 +503,15 @@ class Game:
 
     def draw_hud(self):
         ox = PANEL_LEFT
-        y = BOARD_OY + 168
+        y = BOARD_OY + 138
         lvl = self.display_level()
         texts = (
             ("Score", f"{self.score}"),
             ("Niveau", f"{lvl}"),
+            ("Vies", f"{STARTING_LIVES}"),
+            ("Palier", f"+{self.points_to_next_level()} pts"),
             ("Lignes", f"{self.total_lines}"),
-            ("But marathon", f"{MARATHON_LINE_GOAL} lignes"),
+            ("Marathon", f"{MARATHON_LINE_GOAL} lignes"),
             ("Record", f"{self.high_score}"),
             ("Diff.", self._difficulty_name()),
         )
@@ -431,8 +519,8 @@ class Game:
             a = self.font_small.render(lab + ":", True, (180, 185, 210))
             b = self.font_small.render(val, True, WHITE)
             self.screen.blit(a, (ox + 8, y))
-            self.screen.blit(b, (ox + 120, y))
-            y += 28
+            self.screen.blit(b, (ox + 108, y))
+            y += 22
 
         inst = (
             ("Flèches", "déplacer"),
@@ -454,18 +542,32 @@ class Game:
         self.screen.fill(BG)
         title = self.font_title.render("TETRIS", True, TITLE_COLOR)
         subt = self.font.render("Pygame — Projet jeu 2D", True, WHITE)
-        self.screen.blit(title, title.get_rect(center=(WINDOW_WIDTH // 2, 120)))
-        self.screen.blit(subt, subt.get_rect(center=(WINDOW_WIDTH // 2, 175)))
+        self.screen.blit(title, title.get_rect(center=(WINDOW_WIDTH // 2, 110)))
+        self.screen.blit(subt, subt.get_rect(center=(WINDOW_WIDTH // 2, 162)))
 
         dname = self._difficulty_name()
-        diff_txt = self.font.render(f"< {dname} >  ( gauche/droite )", True, (220, 160, 100))
-        self.screen.blit(diff_txt, diff_txt.get_rect(center=(WINDOW_WIDTH // 2, 270)))
+        lab = self.font_small.render("Difficulté", True, (180, 185, 210))
+        self.screen.blit(lab, lab.get_rect(center=(WINDOW_WIDTH // 2, 210)))
 
-        st = self.font.render("SPACE / ENTER — commencer", True, WHITE)
-        self.screen.blit(st, st.get_rect(center=(WINDOW_WIDTH // 2, 330)))
+        mx, my = pygame.mouse.get_pos()
+        self._layout_menu_rects()
+        self._draw_button(self._menu_rects["diff_prev"], "<", hover=self._menu_rects["diff_prev"].collidepoint(mx, my), font=self.font_title)
+        self._draw_button(self._menu_rects["diff_next"], ">", hover=self._menu_rects["diff_next"].collidepoint(mx, my), font=self.font_title)
+
+        name_r = pygame.Rect(WINDOW_WIDTH // 2 - 90, 232, 180, 40)
+        pygame.draw.rect(self.screen, (36, 40, 58), name_r, border_radius=8)
+        pygame.draw.rect(self.screen, (90, 96, 120), name_r, 1, border_radius=8)
+        dn = self.font.render(dname, True, (250, 190, 120))
+        self.screen.blit(dn, dn.get_rect(center=name_r.center))
+
+        self._draw_button(self._menu_rects["play"], "JOUER", hover=self._menu_rects["play"].collidepoint(mx, my))
+        self._draw_button(self._menu_rects["quit"], "QUITTER", hover=self._menu_rects["quit"].collidepoint(mx, my), font=self.font_small)
+
+        hint = self.font_small.render("Souris ou clavier — Entrée / Espace pour jouer", True, (150, 155, 175))
+        self.screen.blit(hint, hint.get_rect(center=(WINDOW_WIDTH // 2, 424)))
 
         rec = self.font_small.render(f"Record : {self.high_score}", True, (170, 180, 205))
-        self.screen.blit(rec, rec.get_rect(center=(WINDOW_WIDTH // 2, 380)))
+        self.screen.blit(rec, rec.get_rect(center=(WINDOW_WIDTH // 2, 454)))
 
     def draw_pause_overlay(self):
         ov = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
@@ -473,7 +575,11 @@ class Game:
         ov.fill((0, 0, 0))
         self.screen.blit(ov, (0, 0))
         t = self.font_title.render("PAUSE", True, WHITE)
-        self.screen.blit(t, t.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2)))
+        self.screen.blit(t, t.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 - 70)))
+        mx, my = pygame.mouse.get_pos()
+        self._layout_pause_rects()
+        self._draw_button(self._pause_rects["resume"], "Reprendre", hover=self._pause_rects["resume"].collidepoint(mx, my))
+        self._draw_button(self._pause_rects["menu"], "Menu principal", hover=self._pause_rects["menu"].collidepoint(mx, my), font=self.font_small)
 
     def draw_gameover_overlay(self):
         ov = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
@@ -481,16 +587,20 @@ class Game:
         ov.fill((35, 0, 22))
         self.screen.blit(ov, (0, 0))
         msg = (
-            ("GAME OVER", self.font_title, (255, 200, 200)),
+            ("PARTIE TERMINÉE", self.font_title, (255, 200, 200)),
             (f"Score : {self.score}", self.font, WHITE),
-            ("ENTER — menu", self.font_small, (200, 200, 220)),
-            (" ESC — quitter ", self.font_small, (170, 170, 200)),
         )
-        yy = WINDOW_HEIGHT // 2 - 100
+        yy = WINDOW_HEIGHT // 2 - 120
         for text, ft, color in msg:
             s = ft.render(text, True, color)
             self.screen.blit(s, s.get_rect(center=(WINDOW_WIDTH // 2, yy)))
-            yy += 54
+            yy += 52
+        mx, my = pygame.mouse.get_pos()
+        self._layout_end_rects()
+        self._draw_button(self._end_rects["menu"], "Menu principal", hover=self._end_rects["menu"].collidepoint(mx, my))
+        self._draw_button(self._end_rects["quit"], "Quitter", hover=self._end_rects["quit"].collidepoint(mx, my), font=self.font_small)
+        hint = self.font_small.render("Entrée / Espace — menu", True, (190, 190, 210))
+        self.screen.blit(hint, hint.get_rect(center=(WINDOW_WIDTH // 2, 560)))
 
     def draw_marathon_win(self):
         ov = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
@@ -498,16 +608,21 @@ class Game:
         ov.fill((10, 50, 30))
         self.screen.blit(ov, (0, 0))
         lines = [
-            ("MARATHON", self.font_title, (180, 255, 210)),
-            (f"{MARATHON_LINE_GOAL} lignes effacees !", self.font, WHITE),
+            ("MARATHON TERMINÉ !", self.font_title, (180, 255, 210)),
+            (f"{MARATHON_LINE_GOAL} lignes effacées", self.font, WHITE),
             (f"Score final : {self.score}", self.font_small, (220, 240, 220)),
-            ("ENTER — menu", self.font_small, (200, 220, 200)),
         ]
-        yy = WINDOW_HEIGHT // 2 - 110
+        yy = WINDOW_HEIGHT // 2 - 130
         for text, ft, color in lines:
             s = ft.render(text, True, color)
             self.screen.blit(s, s.get_rect(center=(WINDOW_WIDTH // 2, yy)))
-            yy += 56
+            yy += 52
+        mx, my = pygame.mouse.get_pos()
+        self._layout_end_rects()
+        self._draw_button(self._end_rects["menu"], "Menu principal", hover=self._end_rects["menu"].collidepoint(mx, my))
+        self._draw_button(self._end_rects["quit"], "Quitter", hover=self._end_rects["quit"].collidepoint(mx, my), font=self.font_small)
+        hint = self.font_small.render("Entrée / Espace — menu", True, (200, 220, 200))
+        self.screen.blit(hint, hint.get_rect(center=(WINDOW_WIDTH // 2, 560)))
 
     def draw(self):
         if self.phase == GamePhase.MENU:

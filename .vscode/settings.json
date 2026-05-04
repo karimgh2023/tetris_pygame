@@ -1,0 +1,9 @@
+{
+  "python.terminal.executeInFileDir": false,
+  "code-runner.executorMap": {
+    "python": "py -3.11 -u"
+  },
+  "code-runner.clearPreviousOutput": false,
+  "code-runner.saveFileBeforeRun": true,
+  "code-runner.showExecutionMessage": false
+}

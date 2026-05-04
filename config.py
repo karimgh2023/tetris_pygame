@@ -13,11 +13,15 @@ CELL_PX = 28
 BOARD_PIXEL_W = COLS * CELL_PX
 BOARD_PIXEL_H = VISIBLE_ROWS * CELL_PX
 
-# Soft drop multiplier vs base gravity (cells per tick scaling handled in Game).
+# Difficulty: score needed per displayed level step + gravity boost (harder presets).
+# Gravity uses combined level = level_boost + (score // score_per_level).
 DIFFICULTY_LEVELS = {
-    "Normal": {"start_level": 1, "lines_per_level": 10},
-    "Hard": {"start_level": 3, "lines_per_level": 8},
-    "Expert": {"start_level": 5, "lines_per_level": 6},
+    "Normal": {"score_per_level": 4200, "level_boost": 0},
+    "Hard": {"score_per_level": 3200, "level_boost": 1},
+    "Expert": {"score_per_level": 2200, "level_boost": 2},
 }
 
 HIGHSCORE_FILE = "assets/highscore.txt"
+
+# Lives shown for cahier HUD (Tetris classic: no stock loss — display only).
+STARTING_LIVES = 3

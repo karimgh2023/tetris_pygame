@@ -1,4 +1,3 @@
-"""Seven-bag tetromino definitions and rotations."""
 
 from config import HIDDEN_ROWS
 

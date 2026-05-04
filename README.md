@@ -1,6 +1,8 @@
 # Tetris (Pygame)
 
-Jeu Tetris conforme aux exigences type **cahier des charges Python / Pygame** : fenêtre fixe **800×600**, boucle **FPS**, **POO** (`Board`, `Tetromino`, `Bag`, `Game`), **écrans** (accueil, jeu, game over / victoire marathon), **score / niveau / lignes**, **collisions**, **sons** procéduraux, **animations** lors de la disparition des lignes, **high score** (`assets/highscore.txt`), **pause** (**P** / **Échap**), difficultés (**Normal**, **Hard**, **Expert**).
+Jeu Tetris conforme aux exigences type **cahier des charges Python / Pygame** : fenêtre fixe **800×600**, boucle **FPS**, **POO** (`Board`, `Tetromino`, `Bag`, `Game`), **écrans** (accueil, jeu, game over / victoire marathon), **score / niveau / vies** (affichage + progression), **collisions**, **souris** (boutons menu / pause / fin), **sons** procéduraux, **animations** lors de la disparition des lignes, **high score** (`assets/highscore.txt`), **pause** (**P** / **Échap**), difficultés (**Normal**, **Hard**, **Expert**).
+
+Le **niveau** augmente avec le **score** (seuil par difficulté) et accélère la gravité ; le HUD indique le **palier** de points avant le prochain niveau.
 
 ## Installation
 
@@ -16,6 +18,8 @@ Python **3.10+** recommandé.
 python main.py
 ```
 
+Sous **Windows**, si votre extension (ex. *Code Runner*) exécutait `#!/usr/bin/env python3` : cette ligne Unix n’existe pas dans PowerShell. Utilisez plutôt `py -3.11 main.py` (avec pygame installé sur ce Python) ou choisissez l’interpréteur **3.11+** dans Cursor / VS Code (**Python: Select Interpreter**). Le dépôt contient `.vscode/settings.json` pour *Code Runner* avec `py -3.11`.
+
 ## Contrôles (en partie)
 
 | Touche       | Action            |
@@ -24,9 +28,10 @@ python main.py
 | Z / Haut / X | Rotation        |
 | Bas         | Chute rapide      |
 | Espace      | Chute instantanée |
-| P / Échap   | Pause             |
+| P / Échap   | Pause / reprendre |
+| M           | Pause → menu (clavier) |
 
-Sur l’accueil : ← / → choisissent la difficulté ; **SPACE** ou **ENTER** démarrent.
+Sur l’accueil : **boutons** Jouer / Quitter et **< >** pour la difficulté ; **souris** ou **← / →** et **SPACE** / **ENTER** pour démarrer. En pause ou fin de partie : boutons **Reprendre**, **Menu principal**, **Quitter**.
 
 ## Victoire et défaite
 
